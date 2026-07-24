@@ -660,12 +660,9 @@ def processar_precos(tabela_007_file, lista_ml_file, relatorio_anterior_file=Non
     protheus["SKU"] = protheus["SKU"].astype(str).apply(normalize_sku)
     protheus["Preço"] = protheus["Preço"].apply(lambda x: money_dot(x))
 
-    protheus_013 = analise[
-        analise["Preço Final Sugerido 007"].notna() & analise["SKU"].notna()
-    ][["SKU", "Preço Final Sugerido 007", "Data Alteração"]].copy()
-    protheus_013.columns = ["SKU", "Preço", "Data"]
-    protheus_013["SKU"] = protheus_013["SKU"].astype(str).apply(normalize_sku)
-    protheus_013["Preço"] = protheus_013["Preço"].apply(lambda x: money_dot(round(float(x) * (1 + config.acrescimo_tabela_013), 2)))
+    # Política atual da Adequação ML: tabelas 001, 007 e 013 usam o mesmo preço calculado.
+    # A primeira linha do CSV define a tabela; os SKUs/preços/datas permanecem iguais.
+    protheus_013 = protheus.copy()
 
     comparativo = gerar_comparativo_anterior(analise, relatorio_anterior_file, config) if relatorio_anterior_file else pd.DataFrame()
 
@@ -673,9 +670,10 @@ def processar_precos(tabela_007_file, lista_ml_file, relatorio_anterior_file=Non
         "Data de geração": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "Aba tabela 007 lida": sheet_tabela,
         "Aba Lista ML lida": sheet_ml,
+        "Código tabela Protheus 001": "001",
         "Código tabela Protheus 007": str(config.tabela_codigo).zfill(3),
         "Código tabela Protheus 013": str(config.tabela_codigo_013).zfill(3),
-        "Acréscimo aplicado na tabela 013": f"{config.acrescimo_tabela_013:.2%}",
+        "Política ML 001/007/013": "preços iguais; muda apenas o código da tabela na primeira linha do CSV",
         "SKUs na Lista ML revisada": int(len(lista_ml)),
         "SKUs encontrados na tabela 007": int(analise["Preço Tabela 007 Atual"].notna().sum()),
         "SKUs não encontrados ou sem preço 007": int(analise["Preço Tabela 007 Atual"].isna().sum()),
@@ -788,7 +786,7 @@ def gerar_comparativo_anterior(analise_atual: pd.DataFrame, relatorio_anterior_f
 
 def build_log_txt_from_frames(resumo: pd.DataFrame, log: pd.DataFrame, analise: pd.DataFrame, protheus_007: pd.DataFrame, protheus_013: pd.DataFrame) -> str:
     linhas = []
-    linhas.append("LOG DE PROCESSAMENTO - AJUSTE TABELAS 007/013 x MERCADO LIVRE")
+    linhas.append("LOG DE PROCESSAMENTO - AJUSTE TABELAS 001/007/013 x MERCADO LIVRE")
     linhas.append(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
     linhas.append("")
     linhas.append("RESUMO")
@@ -796,13 +794,14 @@ def build_log_txt_from_frames(resumo: pd.DataFrame, log: pd.DataFrame, analise: 
     if resumo is not None and not resumo.empty:
         for _, r in resumo.iterrows():
             linhas.append(f"- {r.get('Indicador')}: {r.get('Valor')}")
+    linhas.append(f"- Linhas geradas no arquivo Protheus 001: {len(protheus_007)}")
     linhas.append(f"- Linhas geradas no arquivo Protheus 007: {len(protheus_007)}")
     linhas.append(f"- Linhas geradas no arquivo Protheus 013: {len(protheus_013)}")
     linhas.append("")
 
     # Validação defensiva: Protheus precisa sair com SKUs de 5 dígitos.
     sku_invalidos_saida = []
-    for nome, df in [("007", protheus_007), ("013", protheus_013)]:
+    for nome, df in [("001", protheus_007), ("007", protheus_007), ("013", protheus_013)]:
         if df is None or df.empty:
             continue
         for sku in df["SKU"].astype(str).tolist():
@@ -932,6 +931,7 @@ def build_report_excel(result: ProcessResult) -> bytes:
         ("ALERTAS_FINANCEIROS", result.alertas, "AlertasFinanceirosTable"),
         ("COMPARATIVO_ANTERIOR", result.comparativo, "ComparativoAnteriorTable"),
         ("LOG_AJUSTE_ML_007", result.log, "LogAjusteTable"),
+        ("SAIDA_PROTHEUS_001", result.protheus, "SaidaProtheus001Table"),
         ("SAIDA_PROTHEUS_007", result.protheus, "SaidaProtheus007Table"),
         ("SAIDA_PROTHEUS_013", result.protheus_013, "SaidaProtheus013Table"),
     ]

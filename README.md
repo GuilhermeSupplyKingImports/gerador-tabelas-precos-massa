@@ -1,8 +1,5 @@
 # GERADOR DE TABELAS DE PREÇOS EM MASSA
 
-**Correção V10:** CSV Protheus ajustado para terminar todas as linhas com `;`, mantendo 4 campos por linha, conforme modelo manual aceito pelo importador DA1.
-
-
 Este app gera arquivos CSV no modelo de tabelas de preços em massa do Protheus e mantém relatórios analíticos em Excel.
 
 A versão atual possui uma **Home** com dois módulos:
@@ -25,7 +22,6 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-
 ## Seleção de arquivos antes da geração
 
 Nos dois módulos, antes de processar, o usuário pode marcar exatamente quais saídas deseja gerar.
@@ -38,6 +34,37 @@ Exemplos:
 - pacote completo.
 
 O ZIP final sempre inclui apenas os arquivos selecionados naquela execução.
+
+## Seleção de SKUs antes da exportação
+
+Depois de gerar o processamento, o app exibe a etapa **Revisar SKUs para exportação**.
+
+Nessa etapa:
+
+- todos os SKUs vêm marcados por padrão;
+- o usuário pode desmarcar os SKUs que não devem ir para os arquivos Protheus;
+- os CSVs e o ZIP são montados somente com os SKUs marcados;
+- a análise continua visível para auditoria;
+- o relatório Excel inclui a coluna `Exportar?`, indicando o que entrou ou não na exportação daquela execução.
+
+Essa função evita edição manual do CSV no Excel e preserva o layout exigido pelo Protheus.
+
+## Nome personalizado nos downloads
+
+Depois da etapa de revisão de SKUs, o app exibe o campo **Identificação dos arquivos (opcional)**.
+
+Quando preenchido, esse texto passa a compor o nome dos arquivos baixados, junto com o código da tabela e a data em `DDMMAAAA`.
+
+Exemplo com identificação `FEBI` e data `17/06/2026`:
+
+- `001 - FEBI 17062026.csv`
+- `007 - FEBI 17062026.csv`
+- `013 - FEBI 17062026.csv`
+- `relatorio_precificacao_comum - FEBI 17062026.xlsx`
+- `log_precificacao_comum - FEBI 17062026.txt`
+- `pacote_precificacao_comum - FEBI 17062026.zip`
+
+Se o campo ficar vazio, o app usa o padrão técnico anterior.
 
 ## Módulo 1 — Precificação Comum
 
@@ -65,20 +92,9 @@ O sistema também tenta reconhecer cabeçalhos como `SKU`, `Custo Médio` e `Pre
 | 007 | Preço 001 com 16% de desconto |
 | 013 | Preço da 007 + 12% |
 
-### Arquivos gerados
-
-- `protheus_tabela_001_*.csv`
-- `protheus_tabela_004_*.csv`
-- `protheus_tabela_012_*.csv`
-- `protheus_tabela_007_*.csv`
-- `protheus_tabela_013_*.csv`
-- `relatorio_precificacao_comum_*.xlsx`
-- `log_precificacao_comum_*.txt`
-- `pacote_precificacao_comum_*.zip`
-
 ## Módulo 2 — Adequação ML
 
-Use este módulo para a rotina já existente de adequação da tabela 007 com os preços revisados do Mercado Livre.
+Use este módulo para a rotina de adequação com os preços revisados do Mercado Livre.
 
 ### Entradas
 
@@ -94,9 +110,18 @@ Use este módulo para a rotina já existente de adequação da tabela 007 com os
 - Se o preço comercial 007 estiver maior que o preço ML, o sistema calcula `Preço ML x 0,90`.
 - Se o preço comercial 007 já estiver menor ou igual ao ML, mantém o preço 007.
 - Se o preço comercial 007 estiver como `0,01`, o sistema trata como item sem preço de venda cadastrado e calcula `Preço ML x 0,90`.
-- A tabela 013 é gerada com `Preço 007 x 1,12`.
+- As tabelas **001, 007 e 013 são iguais no módulo ML**; muda apenas o código da tabela na primeira linha do CSV.
 - O lucro bruto é calculado pela regra `Preço final da tabela 007 - Custo Médio`.
 - O sistema gera alertas de prejuízo, markup baixo, margem baixa e custos inválidos.
+
+### Arquivos gerados no módulo ML
+
+- `001 - IDENTIFICACAO DDMMAAAA.csv`
+- `007 - IDENTIFICACAO DDMMAAAA.csv`
+- `013 - IDENTIFICACAO DDMMAAAA.csv`
+- `relatorio_tabela_001_007_013_ml - IDENTIFICACAO DDMMAAAA.xlsx`
+- `log_tabela_001_007_013_ml - IDENTIFICACAO DDMMAAAA.txt`
+- `pacote_tabela_001_007_013_ml - IDENTIFICACAO DDMMAAAA.zip`
 
 ## Formato dos arquivos Protheus
 
@@ -137,53 +162,21 @@ python run_cli.py ml --tabela-007 "tabela 007-0526.xlsx" --ml "PREÇOS ML - REVI
 python run_cli.py comum --base "precificacao_comum.xlsx" --saida saida_comum
 ```
 
+## Atualização V14
 
-## Correção V11 - CSV Protheus
+Na aba **Adequação ML**, a política foi ajustada para gerar **001, 007 e 013 com o mesmo preço**. A diferença entre as tabelas nesse módulo passa a ser apenas o código da primeira linha do CSV:
 
-O CSV de subida agora é gerado obrigatoriamente no layout:
+```csv
+001;;;
+36556;62.00;17/06/2026;
+```
 
 ```csv
 007;;;
 36556;62.00;17/06/2026;
 ```
 
-Regras reforçadas:
-- código da tabela com 3 dígitos no conteúdo e no nome do arquivo;
-- todas as linhas com `;` final;
-- 4 campos por linha para evitar erro Protheus `array out of bounds (4 of 3)`.
-
-## Feature V12 - seleção de SKUs antes da exportação
-
-Depois de gerar o processamento, o app exibe a etapa **Revisar SKUs para exportação**.
-
-Nessa etapa:
-
-- todos os SKUs vêm marcados por padrão;
-- o usuário pode desmarcar os SKUs que não devem ir para os arquivos Protheus;
-- os CSVs e o ZIP são montados somente com os SKUs marcados;
-- a análise continua visível para auditoria;
-- o relatório Excel passa a incluir a coluna `Exportar?`, indicando o que entrou ou não na exportação daquela execução.
-
-Essa função evita que o usuário edite o CSV manualmente no Excel, preservando o layout exigido pelo Protheus, especialmente:
-
 ```csv
-007;;;
+013;;;
 36556;62.00;17/06/2026;
 ```
-
-## Feature V13 - nome personalizado nos downloads
-
-Depois da etapa de revisão de SKUs, o app exibe o campo **Identificação dos arquivos (opcional)**.
-
-Quando preenchido, esse texto passa a compor o nome dos arquivos baixados, junto com o código da tabela e a data em `DDMMAAAA`.
-
-Exemplo com identificação `FEBI` e data `17/06/2026`:
-
-- `001 - FEBI 17062026.csv`
-- `007 - FEBI 17062026.csv`
-- `013 - FEBI 17062026.csv`
-- `relatorio_precificacao_comum - FEBI 17062026.xlsx`
-- `log_precificacao_comum - FEBI 17062026.txt`
-- `pacote_precificacao_comum - FEBI 17062026.zip`
-
-Se o campo ficar vazio, o app usa o padrão técnico anterior.
