@@ -38,6 +38,8 @@ class ProcessResult:
     resumo: pd.DataFrame
     comparativo: pd.DataFrame
     protheus: pd.DataFrame
+    protheus_004: pd.DataFrame
+    protheus_012: pd.DataFrame
     protheus_013: pd.DataFrame
     matched_table: pd.DataFrame
     resumo_dict: Dict[str, int | float | str]
@@ -138,6 +140,33 @@ def money_dot(value: Optional[float]) -> str:
     if value is None or pd.isna(value):
         return ""
     return f"{float(value):.2f}"
+
+
+def calcular_preco_venda_interna(custo, preco_007) -> Tuple[Optional[float], Optional[float], Optional[float], str]:
+    """Calcula o preço das tabelas internas 004/012.
+
+    Regra operacional: comparar o cálculo original (custo médio / 2)
+    contra o novo preço da tabela 007 / 4. O menor valor válido é usado
+    como preço final de 004 e 012 para acompanhar promoções agressivas.
+    """
+    custo_valido = custo is not None and not pd.isna(custo) and float(custo) > 0
+    preco_007_valido = preco_007 is not None and not pd.isna(preco_007) and float(preco_007) > 0
+
+    preco_original = round(float(custo) / 2, 2) if custo_valido else None
+    preco_007_div_4 = round(float(preco_007) / 4, 2) if preco_007_valido else None
+
+    if preco_original is not None and preco_007_div_4 is not None:
+        if preco_007_div_4 < preco_original:
+            return preco_original, preco_007_div_4, preco_007_div_4, "007/4"
+        return preco_original, preco_007_div_4, preco_original, "CUSTO/2"
+
+    if preco_original is not None:
+        return preco_original, preco_007_div_4, preco_original, "CUSTO/2"
+
+    if preco_007_div_4 is not None:
+        return preco_original, preco_007_div_4, preco_007_div_4, "007/4"
+
+    return preco_original, preco_007_div_4, None, "SEM PREÇO VÁLIDO"
 
 
 def pct(value: Optional[float]) -> Optional[float]:
@@ -623,12 +652,18 @@ def processar_precos(tabela_007_file, lista_ml_file, relatorio_anterior_file=Non
                 "Detalhe": f"Custo informado: {custo}.",
             })
 
+        preco_interno_original, preco_interno_007_div_4, preco_final_interno, criterio_preco_interno = calcular_preco_venda_interna(custo, preco_final)
+
         records.append({
             "SKU": sku,
             "Preço Tabela 007 Atual": round(float(preco_tabela), 2) if preco_tabela is not None and not pd.isna(preco_tabela) else None,
             "Preço ML": round(float(preco_ml), 2) if preco_ml is not None and not pd.isna(preco_ml) else None,
             "Custo Médio": round(float(custo), 2) if custo is not None and not pd.isna(custo) else None,
             "Preço Final Sugerido 007": preco_final,
+            "Preço Interno Original 004/012 (Custo/2)": preco_interno_original,
+            "Preço Interno 007/4": preco_interno_007_div_4,
+            "Preço Final 004/012": preco_final_interno,
+            "Critério 004/012": criterio_preco_interno,
             "Ação": acao,
             "Markup": markup,
             "Lucro Bruto": lucro,
@@ -660,8 +695,17 @@ def processar_precos(tabela_007_file, lista_ml_file, relatorio_anterior_file=Non
     protheus["SKU"] = protheus["SKU"].astype(str).apply(normalize_sku)
     protheus["Preço"] = protheus["Preço"].apply(lambda x: money_dot(x))
 
+    protheus_interno = analise[
+        analise["Preço Final 004/012"].notna() & analise["SKU"].notna()
+    ][["SKU", "Preço Final 004/012", "Data Alteração"]].copy()
+    protheus_interno.columns = ["SKU", "Preço", "Data"]
+    protheus_interno["SKU"] = protheus_interno["SKU"].astype(str).apply(normalize_sku)
+    protheus_interno["Preço"] = protheus_interno["Preço"].apply(lambda x: money_dot(x))
+
     # Política atual da Adequação ML: tabelas 001, 007 e 013 usam o mesmo preço calculado.
-    # A primeira linha do CSV define a tabela; os SKUs/preços/datas permanecem iguais.
+    # As tabelas internas 004 e 012 usam o menor valor entre custo médio / 2 e 007 / 4.
+    protheus_004 = protheus_interno.copy()
+    protheus_012 = protheus_interno.copy()
     protheus_013 = protheus.copy()
 
     comparativo = gerar_comparativo_anterior(analise, relatorio_anterior_file, config) if relatorio_anterior_file else pd.DataFrame()
@@ -671,9 +715,12 @@ def processar_precos(tabela_007_file, lista_ml_file, relatorio_anterior_file=Non
         "Aba tabela 007 lida": sheet_tabela,
         "Aba Lista ML lida": sheet_ml,
         "Código tabela Protheus 001": "001",
+        "Código tabela Protheus 004": "004",
         "Código tabela Protheus 007": str(config.tabela_codigo).zfill(3),
+        "Código tabela Protheus 012": "012",
         "Código tabela Protheus 013": str(config.tabela_codigo_013).zfill(3),
         "Política ML 001/007/013": "preços iguais; muda apenas o código da tabela na primeira linha do CSV",
+        "Política ML 004/012": "menor valor entre custo médio / 2 e preço final 007 / 4",
         "SKUs na Lista ML revisada": int(len(lista_ml)),
         "SKUs encontrados na tabela 007": int(analise["Preço Tabela 007 Atual"].notna().sum()),
         "SKUs não encontrados ou sem preço 007": int(analise["Preço Tabela 007 Atual"].isna().sum()),
@@ -681,6 +728,10 @@ def processar_precos(tabela_007_file, lista_ml_file, relatorio_anterior_file=Non
         "Preços calculados por 007 sem cadastro (0,01)": int((analise["Ação"] == "ALTERAR - 007 SEM CADASTRO (ML -10%)").sum()),
         "Preços mantidos 007 <= ML": int((analise["Ação"] == "MANTER - 007 <= ML").sum()),
         "Preços mantidos por ML inválido": int((analise["Ação"] == "MANTER - ML INVÁLIDO").sum()),
+        "Linhas geradas tabela 004": int(len(protheus_004)),
+        "Linhas geradas tabela 012": int(len(protheus_012)),
+        "Itens 004/012 com preço por custo/2": int((analise["Critério 004/012"] == "CUSTO/2").sum()),
+        "Itens 004/012 com preço por 007/4": int((analise["Critério 004/012"] == "007/4").sum()),
         "Itens com prejuízo vs custo médio": int((analise["Prejuízo?"] == "SIM").sum()),
         "Itens com markup menor que 120%": int((analise["Markup"].notna() & (analise["Markup"] < config.markup_minimo)).sum()),
         "Itens com margem menor que 35%": int((analise["Margem de Lucro"].notna() & (analise["Margem de Lucro"] < config.margem_critica)).sum()),
@@ -698,7 +749,7 @@ def processar_precos(tabela_007_file, lista_ml_file, relatorio_anterior_file=Non
 
     # Tabela filtrada em estrutura analítica; a aba operacional do relatório final é a análise + Protheus.
     matched_table = analise.copy()
-    log_text = build_log_txt_from_frames(resumo, log, analise, protheus, protheus_013)
+    log_text = build_log_txt_from_frames(resumo, log, analise, protheus, protheus_004, protheus_012, protheus_013)
 
     return ProcessResult(
         analise=analise,
@@ -707,6 +758,8 @@ def processar_precos(tabela_007_file, lista_ml_file, relatorio_anterior_file=Non
         resumo=resumo,
         comparativo=comparativo,
         protheus=protheus,
+        protheus_004=protheus_004,
+        protheus_012=protheus_012,
         protheus_013=protheus_013,
         matched_table=matched_table,
         resumo_dict=resumo_dict,
@@ -784,9 +837,9 @@ def gerar_comparativo_anterior(analise_atual: pd.DataFrame, relatorio_anterior_f
 
 
 
-def build_log_txt_from_frames(resumo: pd.DataFrame, log: pd.DataFrame, analise: pd.DataFrame, protheus_007: pd.DataFrame, protheus_013: pd.DataFrame) -> str:
+def build_log_txt_from_frames(resumo: pd.DataFrame, log: pd.DataFrame, analise: pd.DataFrame, protheus_007: pd.DataFrame, protheus_004: pd.DataFrame, protheus_012: pd.DataFrame, protheus_013: pd.DataFrame) -> str:
     linhas = []
-    linhas.append("LOG DE PROCESSAMENTO - AJUSTE TABELAS 001/007/013 x MERCADO LIVRE")
+    linhas.append("LOG DE PROCESSAMENTO - AJUSTE TABELAS 001/004/007/012/013 x MERCADO LIVRE")
     linhas.append(f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
     linhas.append("")
     linhas.append("RESUMO")
@@ -795,13 +848,15 @@ def build_log_txt_from_frames(resumo: pd.DataFrame, log: pd.DataFrame, analise: 
         for _, r in resumo.iterrows():
             linhas.append(f"- {r.get('Indicador')}: {r.get('Valor')}")
     linhas.append(f"- Linhas geradas no arquivo Protheus 001: {len(protheus_007)}")
+    linhas.append(f"- Linhas geradas no arquivo Protheus 004: {len(protheus_004)}")
     linhas.append(f"- Linhas geradas no arquivo Protheus 007: {len(protheus_007)}")
+    linhas.append(f"- Linhas geradas no arquivo Protheus 012: {len(protheus_012)}")
     linhas.append(f"- Linhas geradas no arquivo Protheus 013: {len(protheus_013)}")
     linhas.append("")
 
     # Validação defensiva: Protheus precisa sair com SKUs de 5 dígitos.
     sku_invalidos_saida = []
-    for nome, df in [("001", protheus_007), ("007", protheus_007), ("013", protheus_013)]:
+    for nome, df in [("001", protheus_007), ("004", protheus_004), ("007", protheus_007), ("012", protheus_012), ("013", protheus_013)]:
         if df is None or df.empty:
             continue
         for sku in df["SKU"].astype(str).tolist():
@@ -932,7 +987,9 @@ def build_report_excel(result: ProcessResult) -> bytes:
         ("COMPARATIVO_ANTERIOR", result.comparativo, "ComparativoAnteriorTable"),
         ("LOG_AJUSTE_ML_007", result.log, "LogAjusteTable"),
         ("SAIDA_PROTHEUS_001", result.protheus, "SaidaProtheus001Table"),
+        ("SAIDA_PROTHEUS_004", result.protheus_004, "SaidaProtheus004Table"),
         ("SAIDA_PROTHEUS_007", result.protheus, "SaidaProtheus007Table"),
+        ("SAIDA_PROTHEUS_012", result.protheus_012, "SaidaProtheus012Table"),
         ("SAIDA_PROTHEUS_013", result.protheus_013, "SaidaProtheus013Table"),
     ]
 
@@ -955,7 +1012,11 @@ def build_protheus_excel(result: ProcessResult, config: Optional[ProcessConfig] 
     config = config or ProcessConfig()
     tabela = str(tabela).zfill(3)
 
-    if tabela == str(config.tabela_codigo_013).zfill(3) or tabela == "013":
+    if tabela == "004":
+        df_saida = result.protheus_004
+    elif tabela == "012":
+        df_saida = result.protheus_012
+    elif tabela == str(config.tabela_codigo_013).zfill(3) or tabela == "013":
         df_saida = result.protheus_013
     else:
         df_saida = result.protheus
@@ -1046,7 +1107,11 @@ def build_protheus_csv_from_df(df_saida: pd.DataFrame, tabela: str) -> bytes:
 def build_protheus_csv(result: ProcessResult, config: Optional[ProcessConfig] = None, tabela: str = "007") -> bytes:
     config = config or ProcessConfig()
     tabela = str(tabela).zfill(3)
-    if tabela == str(config.tabela_codigo_013).zfill(3) or tabela == "013":
+    if tabela == "004":
+        df_saida = result.protheus_004
+    elif tabela == "012":
+        df_saida = result.protheus_012
+    elif tabela == str(config.tabela_codigo_013).zfill(3) or tabela == "013":
         df_saida = result.protheus_013
     else:
         df_saida = result.protheus
@@ -1232,7 +1297,7 @@ def processar_precificacao_comum(input_file, config: Optional[CommonPricingConfi
                 "Severidade": "CRÍTICO",
                 "SKU": sku or "",
                 "Mensagem": "Custo médio inválido, zerado ou ausente.",
-                "Detalhe": f"Linha Excel aproximada: {linha}; custo informado: {custo}. As tabelas 004 e 012 não serão geradas para este SKU.",
+                "Detalhe": f"Linha Excel aproximada: {linha}; custo informado: {custo}. O cálculo original das tabelas 004 e 012 (custo/2) não será possível; se houver preço 007 válido, o app usará 007/4.",
             })
 
         if not preco_001_valido:
@@ -1246,18 +1311,22 @@ def processar_precificacao_comum(input_file, config: Optional[CommonPricingConfi
             })
 
         preco_001_calc = round(float(preco_001), 2) if preco_001_valido else None
-        preco_004_calc = round(float(custo) / 2, 2) if custo_valido else None
-        preco_012_calc = round(float(custo) / 2, 2) if custo_valido else None
         preco_007_calc = round(float(preco_001_calc) * (1 - config.desconto_007_sobre_001), 2) if preco_001_calc is not None else None
         preco_013_calc = round(float(preco_007_calc) * (1 + config.acrescimo_013_sobre_007), 2) if preco_007_calc is not None else None
+        preco_interno_original, preco_interno_007_div_4, preco_interno_final, criterio_preco_interno = calcular_preco_venda_interna(custo, preco_007_calc)
+        preco_004_calc = preco_interno_final
+        preco_012_calc = preco_interno_final
 
         records.append({
             "SKU": sku,
             "Custo Médio": round(float(custo), 2) if custo is not None and not pd.isna(custo) else None,
             "Preço 001 Informado": round(float(preco_001), 2) if preco_001 is not None and not pd.isna(preco_001) else None,
             "Preço Tabela 001": preco_001_calc,
+            "Preço Interno Original 004/012 (Custo/2)": preco_interno_original,
+            "Preço Interno 007/4": preco_interno_007_div_4,
             "Preço Tabela 004": preco_004_calc,
             "Preço Tabela 012": preco_012_calc,
+            "Critério 004/012": criterio_preco_interno,
             "Preço Tabela 007": preco_007_calc,
             "Preço Tabela 013": preco_013_calc,
             "Data Alteração": data_str,
@@ -1295,6 +1364,9 @@ def processar_precificacao_comum(input_file, config: Optional[CommonPricingConfi
         "Linhas geradas tabela 012": int(len(saidas[str(config.tabela_012).zfill(3)])),
         "Linhas geradas tabela 007": int(len(saidas[str(config.tabela_007).zfill(3)])),
         "Linhas geradas tabela 013": int(len(saidas[str(config.tabela_013).zfill(3)])),
+        "Política 004/012": "menor valor entre custo médio / 2 e preço final 007 / 4",
+        "Itens 004/012 com preço por custo/2": int((analise["Critério 004/012"] == "CUSTO/2").sum()) if not analise.empty else 0,
+        "Itens 004/012 com preço por 007/4": int((analise["Critério 004/012"] == "007/4").sum()) if not analise.empty else 0,
         "Desconto aplicado na 007 sobre a 001": f"{config.desconto_007_sobre_001:.2%}",
         "Acréscimo aplicado na 013 sobre a 007": f"{config.acrescimo_013_sobre_007:.2%}",
         "Intercorrências críticas": int(sum(1 for x in log_rows if str(x.get("Severidade", "")).upper() == "CRÍTICO")),

@@ -87,8 +87,8 @@ O sistema também tenta reconhecer cabeçalhos como `SKU`, `Custo Médio` e `Pre
 | Tabela | Regra |
 |---|---|
 | 001 | Preço 001 informado pelo usuário |
-| 004 | Custo médio / 2 |
-| 012 | Custo médio / 2 |
+| 004 | Menor valor entre `Custo médio / 2` e `Preço final 007 / 4` |
+| 012 | Menor valor entre `Custo médio / 2` e `Preço final 007 / 4` |
 | 007 | Preço 001 com 16% de desconto |
 | 013 | Preço da 007 + 12% |
 
@@ -111,17 +111,20 @@ Use este módulo para a rotina de adequação com os preços revisados do Mercad
 - Se o preço comercial 007 já estiver menor ou igual ao ML, mantém o preço 007.
 - Se o preço comercial 007 estiver como `0,01`, o sistema trata como item sem preço de venda cadastrado e calcula `Preço ML x 0,90`.
 - As tabelas **001, 007 e 013 são iguais no módulo ML**; muda apenas o código da tabela na primeira linha do CSV.
+- As tabelas **004 e 012** usam o menor valor entre `Custo Médio / 2` e `Preço final 007 / 4`.
 - O lucro bruto é calculado pela regra `Preço final da tabela 007 - Custo Médio`.
 - O sistema gera alertas de prejuízo, markup baixo, margem baixa e custos inválidos.
 
 ### Arquivos gerados no módulo ML
 
 - `001 - IDENTIFICACAO DDMMAAAA.csv`
+- `004 - IDENTIFICACAO DDMMAAAA.csv`
 - `007 - IDENTIFICACAO DDMMAAAA.csv`
+- `012 - IDENTIFICACAO DDMMAAAA.csv`
 - `013 - IDENTIFICACAO DDMMAAAA.csv`
-- `relatorio_tabela_001_007_013_ml - IDENTIFICACAO DDMMAAAA.xlsx`
-- `log_tabela_001_007_013_ml - IDENTIFICACAO DDMMAAAA.txt`
-- `pacote_tabela_001_007_013_ml - IDENTIFICACAO DDMMAAAA.zip`
+- `relatorio_tabela_001_004_007_012_013_ml - IDENTIFICACAO DDMMAAAA.xlsx`
+- `log_tabela_001_004_007_012_013_ml - IDENTIFICACAO DDMMAAAA.txt`
+- `pacote_tabela_001_004_007_012_013_ml - IDENTIFICACAO DDMMAAAA.zip`
 
 ## Formato dos arquivos Protheus
 
@@ -180,3 +183,27 @@ Na aba **Adequação ML**, a política foi ajustada para gerar **001, 007 e 013 
 013;;;
 36556;62.00;17/06/2026;
 ```
+
+
+## Atualização V15
+
+As tabelas internas **004** e **012** agora acompanham promoções da tabela 007.
+
+Para cada SKU, o app calcula dois candidatos:
+
+1. cálculo original da venda interna: `Custo Médio / 2`;
+2. novo cálculo promocional: `Preço final da tabela 007 / 4`.
+
+O menor valor válido entre os dois é usado como preço final das tabelas **004** e **012**.
+
+Exemplo:
+
+| Custo Médio | Preço Final 007 | Custo / 2 | 007 / 4 | Preço final 004/012 |
+|---:|---:|---:|---:|---:|
+| 100,00 | 80,00 | 50,00 | 20,00 | 20,00 |
+| 100,00 | 240,00 | 50,00 | 60,00 | 50,00 |
+
+Essa regra vale para:
+
+- **Adequação ML**, que agora pode exportar 001, 004, 007, 012 e 013;
+- **Precificação Comum**, mantendo a lógica de 001/007/013, mas ajustando 004/012 pelo menor preço interno.

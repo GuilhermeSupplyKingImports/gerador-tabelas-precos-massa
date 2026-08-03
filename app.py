@@ -27,7 +27,7 @@ st.set_page_config(page_title="GERADOR DE TABELAS DE PREÇOS EM MASSA", layout="
 st.title("GERADOR DE TABELAS DE PREÇOS EM MASSA")
 st.caption(
     "Home com dois módulos: Precificação Comum e Adequação Mercado Livre. "
-    "Versão V14 - ML com tabelas 001/007/013 iguais."
+    "Versão V15 - tabelas internas 004/012 acompanham o menor preço entre custo/2 e 007/4."
 )
 
 if "resultado_ml" not in st.session_state:
@@ -108,8 +108,17 @@ def _render_editor_exportacao(df: pd.DataFrame, key: str, default_skus: Set[str]
 def _build_ml_filtered_result(result, selected_skus: Set[str]):
     analise = _analise_com_coluna_exportar(result.analise, selected_skus)
     protheus = _filtrar_df_por_skus(result.protheus, selected_skus)
+    protheus_004 = _filtrar_df_por_skus(result.protheus_004, selected_skus)
+    protheus_012 = _filtrar_df_por_skus(result.protheus_012, selected_skus)
     protheus_013 = _filtrar_df_por_skus(result.protheus_013, selected_skus)
-    return replace(result, analise=analise, protheus=protheus, protheus_013=protheus_013)
+    return replace(
+        result,
+        analise=analise,
+        protheus=protheus,
+        protheus_004=protheus_004,
+        protheus_012=protheus_012,
+        protheus_013=protheus_013,
+    )
 
 
 def _build_common_filtered_result(result, selected_skus: Set[str]):
@@ -152,7 +161,7 @@ def _build_ml_outputs(payload, filtered_result, identificacao_download: str = ""
     outputs = {}
 
     if selecionados.get("relatorio"):
-        report_name = _nome_arquivo_auxiliar("relatorio_tabela_001_007_013_ml", identificacao_download, data_download, "xlsx")
+        report_name = _nome_arquivo_auxiliar("relatorio_tabela_001_004_007_012_013_ml", identificacao_download, data_download, "xlsx")
         outputs[report_name] = {
             "label": "Relatório completo",
             "bytes": build_report_excel(filtered_result),
@@ -168,12 +177,30 @@ def _build_ml_outputs(payload, filtered_result, identificacao_download: str = ""
             "mime": "text/csv",
         }
 
+    if selecionados.get("tabela_004"):
+        tabela_004_norm = normalize_table_code("004")
+        fname = _nome_arquivo_tabela(tabela_004_norm, identificacao_download, data_download)
+        outputs[fname] = {
+            "label": f"Protheus {tabela_004_norm}",
+            "bytes": build_protheus_csv(filtered_result, cfg, tabela="004"),
+            "mime": "text/csv",
+        }
+
     if selecionados.get("tabela_007"):
         tabela_007_norm = normalize_table_code(cfg.tabela_codigo)
         fname = _nome_arquivo_tabela(tabela_007_norm, identificacao_download, data_download)
         outputs[fname] = {
             "label": f"Protheus {tabela_007_norm}",
             "bytes": build_protheus_csv(filtered_result, cfg, tabela=cfg.tabela_codigo),
+            "mime": "text/csv",
+        }
+
+    if selecionados.get("tabela_012"):
+        tabela_012_norm = normalize_table_code("012")
+        fname = _nome_arquivo_tabela(tabela_012_norm, identificacao_download, data_download)
+        outputs[fname] = {
+            "label": f"Protheus {tabela_012_norm}",
+            "bytes": build_protheus_csv(filtered_result, cfg, tabela="012"),
             "mime": "text/csv",
         }
 
@@ -187,10 +214,10 @@ def _build_ml_outputs(payload, filtered_result, identificacao_download: str = ""
         }
 
     if selecionados.get("log"):
-        log_name = _nome_arquivo_auxiliar("log_tabela_001_007_013_ml", identificacao_download, data_download, "txt")
+        log_name = _nome_arquivo_auxiliar("log_tabela_001_004_007_012_013_ml", identificacao_download, data_download, "txt")
         outputs[log_name] = {"label": "Log TXT", "bytes": build_log_txt(filtered_result), "mime": "text/plain"}
 
-    zip_name = _nome_arquivo_auxiliar("pacote_tabela_001_007_013_ml", identificacao_download, data_download, "zip")
+    zip_name = _nome_arquivo_auxiliar("pacote_tabela_001_004_007_012_013_ml", identificacao_download, data_download, "zip")
     zip_bytes = build_zip_generic({name: item["bytes"] for name, item in outputs.items()})
     return outputs, zip_name, zip_bytes
 
@@ -244,14 +271,14 @@ def _render_downloads(outputs: Dict[str, Dict], zip_name: str, zip_bytes: bytes,
 def render_adequacao_ml():
     st.header("Adequação ML")
     st.caption(
-        "Atualiza preços com base nos preços revisados do Mercado Livre e gera 001, 007 e 013 iguais, mudando apenas o código da tabela no CSV."
+        "Atualiza preços com base nos preços revisados do Mercado Livre, gera 001/007/013 iguais e ajusta 004/012 pelo menor preço entre custo médio / 2 e 007 / 4."
     )
 
     with st.sidebar:
         st.divider()
         st.subheader("Parâmetros - Adequação ML")
         codigo_tabela = st.text_input("Código da tabela Protheus base", value="007", max_chars=3, key="ml_codigo")
-        st.caption("Na Adequação ML, as tabelas 001, 007 e 013 são exportadas com o mesmo preço. Muda apenas a primeira linha do CSV.")
+        st.caption("Na Adequação ML, 001/007/013 são exportadas com o mesmo preço. As tabelas 004/012 usam o menor valor entre custo médio / 2 e 007 / 4.")
         desconto_ml = st.number_input(
             "Desconto sobre Preço ML",
             min_value=0.0,
@@ -282,19 +309,23 @@ def render_adequacao_ml():
     )
 
     st.subheader("2. Escolha o que deseja gerar")
-    opt1, opt2, opt3, opt4, opt5 = st.columns(5)
+    opt1, opt2, opt3 = st.columns(3)
+    opt4, opt5, opt6 = st.columns(3)
     with opt1:
         gerar_relatorio = st.checkbox("Relatório completo (.xlsx)", value=True, key="ml_opt_relatorio")
     with opt2:
         gerar_001 = st.checkbox("Tabela 001 (.csv)", value=True, key="ml_opt_001")
     with opt3:
-        gerar_007 = st.checkbox(f"Tabela {str(codigo_tabela).zfill(3)} (.csv)", value=True, key="ml_opt_007")
+        gerar_004 = st.checkbox("Tabela 004 (.csv)", value=True, key="ml_opt_004")
     with opt4:
-        gerar_013 = st.checkbox("Tabela 013 (.csv)", value=True, key="ml_opt_013")
+        gerar_007 = st.checkbox(f"Tabela {str(codigo_tabela).zfill(3)} (.csv)", value=True, key="ml_opt_007")
     with opt5:
-        gerar_log = st.checkbox("Log TXT", value=True, key="ml_opt_log")
+        gerar_012 = st.checkbox("Tabela 012 (.csv)", value=True, key="ml_opt_012")
+    with opt6:
+        gerar_013 = st.checkbox("Tabela 013 (.csv)", value=True, key="ml_opt_013")
+    gerar_log = st.checkbox("Log TXT", value=True, key="ml_opt_log")
 
-    alguma_saida = any([gerar_relatorio, gerar_001, gerar_007, gerar_013, gerar_log])
+    alguma_saida = any([gerar_relatorio, gerar_001, gerar_004, gerar_007, gerar_012, gerar_013, gerar_log])
 
     btn_col1, btn_col2 = st.columns([1, 4])
     with btn_col1:
@@ -346,7 +377,9 @@ def render_adequacao_ml():
             "selecionados": {
                 "relatorio": gerar_relatorio,
                 "tabela_001": gerar_001,
+                "tabela_004": gerar_004,
                 "tabela_007": gerar_007,
+                "tabela_012": gerar_012,
                 "tabela_013": gerar_013,
                 "log": gerar_log,
             },
@@ -373,18 +406,20 @@ def render_adequacao_ml():
         selected_skus, selection_table = _render_editor_exportacao(result.analise, f"ml_editor_{payload['generation_id']}", default_skus)
         filtered_result = _build_ml_filtered_result(result, selected_skus)
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
         c1.metric("SKUs selecionados", len(selected_skus))
         c2.metric("Linhas CSV 001", len(filtered_result.protheus))
-        c3.metric("Linhas CSV 007", len(filtered_result.protheus))
-        c4.metric("Linhas CSV 013", len(filtered_result.protheus_013))
+        c3.metric("Linhas CSV 004", len(filtered_result.protheus_004))
+        c4.metric("Linhas CSV 007", len(filtered_result.protheus))
+        c5.metric("Linhas CSV 012", len(filtered_result.protheus_012))
+        c6.metric("Linhas CSV 013", len(filtered_result.protheus_013))
 
         st.subheader("4. Nomear arquivos para download")
         identificacao_download = st.text_input(
             "Identificação dos arquivos (opcional)",
             value="",
             placeholder="Exemplo: FEBI",
-            help="Se preenchido, os arquivos serão baixados como: 001 - FEBI 17062026.csv, 007 - FEBI 17062026.csv, 013 - FEBI 17062026.csv, etc.",
+            help="Se preenchido, os arquivos serão baixados como: 001 - FEBI 17062026.csv, 004 - FEBI 17062026.csv, 007 - FEBI 17062026.csv, etc.",
             key=f"ml_nome_download_{payload['generation_id']}",
         )
 
@@ -393,27 +428,37 @@ def render_adequacao_ml():
         st.subheader("5. Baixar arquivos selecionados")
         _render_downloads(outputs, zip_name, zip_bytes, "ml")
 
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Análise", "Alertas", "Comparativo", "Log", "Protheus 001", "Protheus 007", "Protheus 013"])
-        with tab1:
+        tabs = st.tabs(["Análise", "Alertas", "Comparativo", "Log", "Protheus 001", "Protheus 004", "Protheus 007", "Protheus 012", "Protheus 013"])
+        with tabs[0]:
             st.dataframe(filtered_result.analise, use_container_width=True, hide_index=True)
-        with tab2:
+        with tabs[1]:
             st.dataframe(result.alertas, use_container_width=True, hide_index=True)
-        with tab3:
+        with tabs[2]:
             st.dataframe(result.comparativo, use_container_width=True, hide_index=True) if not result.comparativo.empty else st.write("Nenhum comparativo disponível.")
-        with tab4:
+        with tabs[3]:
             st.dataframe(result.log, use_container_width=True, hide_index=True)
             st.text_area("Prévia do log TXT", result.log_text, height=280, key="ml_log_preview")
-        with tab5:
+        with tabs[4]:
             if payload.get("selecionados", {}).get("tabela_001"):
                 st.dataframe(filtered_result.protheus, use_container_width=True, hide_index=True)
             else:
                 st.write("Tabela 001 não foi selecionada para exportação nesta execução.")
-        with tab6:
+        with tabs[5]:
+            if payload.get("selecionados", {}).get("tabela_004"):
+                st.dataframe(filtered_result.protheus_004, use_container_width=True, hide_index=True)
+            else:
+                st.write("Tabela 004 não foi selecionada para exportação nesta execução.")
+        with tabs[6]:
             if payload.get("selecionados", {}).get("tabela_007"):
                 st.dataframe(filtered_result.protheus, use_container_width=True, hide_index=True)
             else:
                 st.write("Tabela 007 não foi selecionada para exportação nesta execução.")
-        with tab7:
+        with tabs[7]:
+            if payload.get("selecionados", {}).get("tabela_012"):
+                st.dataframe(filtered_result.protheus_012, use_container_width=True, hide_index=True)
+            else:
+                st.write("Tabela 012 não foi selecionada para exportação nesta execução.")
+        with tabs[8]:
             if payload.get("selecionados", {}).get("tabela_013"):
                 st.dataframe(filtered_result.protheus_013, use_container_width=True, hide_index=True)
             else:
@@ -423,7 +468,7 @@ def render_adequacao_ml():
 def render_precificacao_comum():
     st.header("Precificação Comum")
     st.caption(
-        "Gera as tabelas 001, 004, 012, 007 e 013 a partir de uma planilha com A=SKU, B=Custo Médio e C=Preço 001."
+        "Gera as tabelas 001, 004, 012, 007 e 013 a partir de uma planilha com A=SKU, B=Custo Médio e C=Preço 001. As tabelas 004/012 usam o menor valor entre custo médio / 2 e 007 / 4."
     )
 
     with st.sidebar:
@@ -454,7 +499,8 @@ def render_precificacao_comum():
     base_file = st.file_uploader("Planilha de Precificação Comum (.xlsx)", type=["xlsx"], key="comum_base")
     st.info(
         "Estrutura esperada: coluna A = SKU, coluna B = Custo Médio, coluna C = Preço 001. "
-        "O app também tenta reconhecer os cabeçalhos se a planilha tiver nomes de colunas."
+        "O app também tenta reconhecer os cabeçalhos se a planilha tiver nomes de colunas. "
+        "Para 004/012, o app compara custo médio / 2 contra tabela 007 / 4 e usa o menor valor válido."
     )
 
     st.subheader("2. Escolha o que deseja gerar")

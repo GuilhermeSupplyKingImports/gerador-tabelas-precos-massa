@@ -33,17 +33,21 @@ def run_ml(args):
     result = processar_precos(args.tabela_007, args.ml, args.anterior, cfg)
 
     data_nome = datetime.now().strftime("%Y%m%d_%H%M")
-    report_name = f"relatorio_tabela_001_007_013_ml_{data_nome}.xlsx"
+    report_name = f"relatorio_tabela_001_004_007_012_013_ml_{data_nome}.xlsx"
     protheus_001_name = f"protheus_tabela_001_{data_nome}.csv"
+    protheus_004_name = f"protheus_tabela_004_{data_nome}.csv"
     protheus_007_name = f"protheus_tabela_{cfg.tabela_codigo}_{data_nome}.csv"
+    protheus_012_name = f"protheus_tabela_012_{data_nome}.csv"
     protheus_013_name = f"protheus_tabela_013_{data_nome}.csv"
-    log_name = f"log_tabela_001_007_013_ml_{data_nome}.txt"
-    zip_name = f"pacote_tabela_001_007_013_ml_{data_nome}.zip"
+    log_name = f"log_tabela_001_004_007_012_013_ml_{data_nome}.txt"
+    zip_name = f"pacote_tabela_001_004_007_012_013_ml_{data_nome}.zip"
 
     files = {
         report_name: build_report_excel(result),
         protheus_001_name: build_protheus_csv(result, cfg, tabela="001"),
+        protheus_004_name: build_protheus_csv(result, cfg, tabela="004"),
         protheus_007_name: build_protheus_csv(result, cfg, tabela=cfg.tabela_codigo),
+        protheus_012_name: build_protheus_csv(result, cfg, tabela="012"),
         protheus_013_name: build_protheus_csv(result, cfg, tabela="013"),
         log_name: build_log_txt(result),
     }
@@ -88,7 +92,7 @@ def main():
     parser = argparse.ArgumentParser(description="GERADOR DE TABELAS DE PREÇOS EM MASSA.")
     sub = parser.add_subparsers(dest="modo", required=True)
 
-    ml = sub.add_parser("ml", help="Adequação ML para tabelas 001/007/013")
+    ml = sub.add_parser("ml", help="Adequação ML para tabelas 001/004/007/012/013")
     ml.add_argument("--tabela-007", required=True, help="Caminho da tabela 007 oficial .xlsx")
     ml.add_argument("--ml", required=True, help="Caminho da planilha PREÇOS ML - REVISADO .xlsx")
     ml.add_argument("--anterior", default=None, help="Relatório anterior gerado pelo app, opcional")
