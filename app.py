@@ -13,7 +13,6 @@ from processor import (
     build_protheus_csv,
     build_log_txt,
     CommonPricingConfig,
-    processar_precificacao_comum,
     build_common_report_excel,
     build_common_protheus_csv,
     build_common_log_txt,
@@ -21,13 +20,14 @@ from processor import (
     normalize_table_code,
     normalize_sku,
 )
+from common_pricing_flexible import processar_precificacao_comum_flexivel
 
 st.set_page_config(page_title="GERADOR DE TABELAS DE PREÇOS EM MASSA", layout="wide")
 
 st.title("GERADOR DE TABELAS DE PREÇOS EM MASSA")
 st.caption(
     "Home com dois módulos: Precificação Comum e Adequação Mercado Livre. "
-    "Versão V15 - tabelas internas 004/012 acompanham o menor preço entre custo/2 e 007/4."
+    "Versão V16 - Precificação Comum aceita 001 e/ou 007 existentes e gera somente as tabelas desejadas."
 )
 
 if "resultado_ml" not in st.session_state:
@@ -130,7 +130,6 @@ def _build_common_filtered_result(result, selected_skus: Set[str]):
     return replace(result, analise=analise, saidas=saidas)
 
 
-
 def _sanitizar_nome_download(value: str) -> str:
     """Remove caracteres problemáticos para nome de arquivo no Windows/Protheus."""
     nome = str(value or "").strip()
@@ -152,6 +151,7 @@ def _nome_arquivo_auxiliar(prefixo: str, identificacao: str, data_download: str,
     if nome:
         return f"{prefixo} - {nome} {data_download}.{extensao}"
     return f"{prefixo}_{data_download}.{extensao}"
+
 
 def _build_ml_outputs(payload, filtered_result, identificacao_download: str = ""):
     cfg = payload["config"]
@@ -468,7 +468,7 @@ def render_adequacao_ml():
 def render_precificacao_comum():
     st.header("Precificação Comum")
     st.caption(
-        "Gera as tabelas 001, 004, 012, 007 e 013 a partir de uma planilha com A=SKU, B=Custo Médio e C=Preço 001. As tabelas 004/012 usam o menor valor entre custo médio / 2 e 007 / 4."
+        "Agora você pode informar que já possui a 001, a 007 ou ambas. O preço informado é tratado como autoridade e somente as tabelas escolhidas são exportadas."
     )
 
     with st.sidebar:
@@ -495,58 +495,74 @@ def render_precificacao_comum():
         data_alt = st.date_input("Data da alteração Protheus", value=date.today(), format="DD/MM/YYYY", key="comum_data")
         dup_rule = st.selectbox("Se houver SKU duplicado na base, usar", ["ultima", "primeira"], index=0, key="comum_dup")
 
-    st.subheader("1. Envie a planilha base")
-    base_file = st.file_uploader("Planilha de Precificação Comum (.xlsx)", type=["xlsx"], key="comum_base")
-    st.info(
-        "Estrutura esperada: coluna A = SKU, coluna B = Custo Médio, coluna C = Preço 001. "
-        "O app também tenta reconhecer os cabeçalhos se a planilha tiver nomes de colunas. "
-        "Para 004/012, o app compara custo médio / 2 contra tabela 007 / 4 e usa o menor valor válido."
+    st.subheader("1. Informe quais preços você já possui")
+    tabelas_existentes = st.multiselect(
+        "Tabelas-fonte existentes na planilha",
+        options=["001", "007"],
+        default=["001"],
+        help="Se selecionar 001 + 007, a 007 informada será preservada e não será recalculada pelos 16% de desconto.",
+        key="comum_tabelas_existentes",
     )
 
-    st.subheader("2. Escolha o que deseja gerar")
-    c1, c2, c3, c4 = st.columns(4)
-    c5, c6, c7 = st.columns(3)
+    st.subheader("2. Envie a planilha base")
+    base_file = st.file_uploader("Planilha de Precificação Comum (.xlsx)", type=["xlsx"], key="comum_base")
+
+    fontes_set = set(tabelas_existentes)
+    if fontes_set == {"001", "007"}:
+        layout_msg = "A=SKU, B=Custo Médio, C=Preço 001, D=Preço 007."
+    elif fontes_set == {"007"}:
+        layout_msg = "A=SKU, B=Custo Médio, C=Preço 007."
+    else:
+        layout_msg = "A=SKU, B=Custo Médio, C=Preço 001 (layout histórico)."
+
+    st.info(
+        f"Estrutura esperada para a seleção atual: {layout_msg} "
+        "Preço informado sempre prevalece. A 001 nunca é reconstruída a partir da 007. "
+        "004/012 usam o menor valor entre custo médio / 2 e preço final 007 / 4; 013 usa 007 + acréscimo."
+    )
+
+    st.subheader("3. Escolha o que deseja gerar")
+    todas_tabelas = ["001", "004", "012", "007", "013"]
+    if fontes_set == {"001"}:
+        default_gerar = todas_tabelas
+    else:
+        default_gerar = [t for t in todas_tabelas if t not in fontes_set]
+
+    assinatura_fontes = "_".join(sorted(fontes_set)) or "nenhuma"
+    tabelas_selecionadas = st.multiselect(
+        "Tabelas CSV para gerar",
+        options=todas_tabelas,
+        default=default_gerar,
+        key=f"comum_tabelas_gerar_{assinatura_fontes}",
+        help="Exemplo: se você já tem 001 e 007, deixe selecionadas apenas 004, 012 e 013.",
+    )
+
+    c1, c2 = st.columns(2)
     with c1:
         gerar_relatorio = st.checkbox("Relatório completo (.xlsx)", value=True, key="comum_opt_relatorio")
     with c2:
-        gerar_001 = st.checkbox("Tabela 001 (.csv)", value=True, key="comum_opt_001")
-    with c3:
-        gerar_004 = st.checkbox("Tabela 004 (.csv)", value=True, key="comum_opt_004")
-    with c4:
-        gerar_012 = st.checkbox("Tabela 012 (.csv)", value=True, key="comum_opt_012")
-    with c5:
-        gerar_007 = st.checkbox("Tabela 007 (.csv)", value=True, key="comum_opt_007")
-    with c6:
-        gerar_013 = st.checkbox("Tabela 013 (.csv)", value=True, key="comum_opt_013")
-    with c7:
         gerar_log = st.checkbox("Log TXT", value=True, key="comum_opt_log")
 
-    tabelas_selecionadas = [
-        tabela
-        for tabela, selecionada in {
-            "001": gerar_001,
-            "004": gerar_004,
-            "012": gerar_012,
-            "007": gerar_007,
-            "013": gerar_013,
-        }.items()
-        if selecionada
-    ]
     alguma_saida = any([gerar_relatorio, gerar_log, bool(tabelas_selecionadas)])
+    fontes_validas = bool(fontes_set)
 
     btn_col1, btn_col2 = st.columns([1, 4])
     with btn_col1:
         gerar = st.button(
             "Gerar Precificação",
             type="primary",
-            disabled=not (base_file and alguma_saida),
+            disabled=not (base_file and alguma_saida and fontes_validas),
             key="comum_gerar",
         )
     with btn_col2:
         limpar = st.button("Limpar resultado comum", disabled=st.session_state["resultado_comum"] is None, key="comum_limpar")
 
+    if not fontes_validas:
+        st.warning("Selecione pelo menos uma tabela-fonte existente: 001 e/ou 007.")
     if not alguma_saida:
         st.warning("Selecione pelo menos uma saída para gerar.")
+    if "001" in tabelas_selecionadas and "001" not in fontes_set:
+        st.warning("A tabela 001 foi marcada para geração, mas não existe preço 001 na base. O app não reconstrói 001 a partir da 007.")
 
     if limpar:
         st.session_state["resultado_comum"] = None
@@ -559,7 +575,13 @@ def render_precificacao_comum():
             usar_ocorrencia_duplicada=dup_rule,
         )
         with st.spinner("Processando Precificação Comum..."):
-            result = processar_precificacao_comum(base_file, config=cfg, data_alteracao=data_alt)
+            result = processar_precificacao_comum_flexivel(
+                base_file,
+                config=cfg,
+                data_alteracao=data_alt,
+                tabelas_existentes=tabelas_existentes,
+                tabelas_para_gerar=tabelas_selecionadas,
+            )
             data_nome = data_alt.strftime("%Y%m%d")
             data_download = data_alt.strftime("%d%m%Y")
 
@@ -570,10 +592,11 @@ def render_precificacao_comum():
             "data_download": data_download,
             "gerado_em": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             "generation_id": datetime.now().strftime("%Y%m%d%H%M%S%f"),
+            "tabelas_existentes": list(tabelas_existentes),
             "selecionados": {
                 "relatorio": gerar_relatorio,
                 "log": gerar_log,
-                "tabelas": tabelas_selecionadas,
+                "tabelas": list(tabelas_selecionadas),
             },
         }
 
@@ -584,12 +607,12 @@ def render_precificacao_comum():
         r = result.resumo_dict
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("SKUs base", r.get("SKUs válidos na base", 0))
-        m2.metric("Tabela 001", r.get("Linhas geradas tabela 001", 0))
+        m2.metric("Fontes", r.get("Tabelas-fonte informadas", ""))
         m3.metric("Tabela 004/012", r.get("Linhas geradas tabela 004", 0))
-        m4.metric("Tabela 007/013", r.get("Linhas geradas tabela 007", 0))
+        m4.metric("Tabela 007", r.get("Linhas geradas tabela 007", 0))
         m5.metric("Intercorrências", len(result.log))
 
-        st.subheader("3. Revisar SKUs para exportação")
+        st.subheader("4. Revisar SKUs para exportação")
         st.caption(
             "Todos os SKUs vêm marcados por padrão. Desmarque os que não devem entrar nos CSVs Protheus desta execução. "
             "A análise permanece disponível para auditoria."
@@ -602,18 +625,18 @@ def render_precificacao_comum():
         c1.metric("SKUs selecionados", len(selected_skus))
         c2.metric("Tabelas Protheus selecionadas", len(payload.get("selecionados", {}).get("tabelas", [])))
 
-        st.subheader("4. Nomear arquivos para download")
+        st.subheader("5. Nomear arquivos para download")
         identificacao_download = st.text_input(
             "Identificação dos arquivos (opcional)",
             value="",
             placeholder="Exemplo: FEBI",
-            help="Se preenchido, os arquivos serão baixados como: 001 - FEBI 17062026.csv, 007 - FEBI 17062026.csv, etc.",
+            help="Se preenchido, os arquivos serão baixados como: 004 - FEBI 17062026.csv, 012 - FEBI 17062026.csv, 013 - FEBI 17062026.csv, etc.",
             key=f"comum_nome_download_{payload['generation_id']}",
         )
 
         outputs, zip_name, zip_bytes = _build_common_outputs(payload, filtered_result, identificacao_download)
 
-        st.subheader("5. Baixar arquivos selecionados")
+        st.subheader("6. Baixar arquivos selecionados")
         _render_downloads(outputs, zip_name, zip_bytes, "comum")
 
         tabs = st.tabs(["Análise", "Log", "001", "004", "012", "007", "013"])
