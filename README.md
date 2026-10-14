@@ -70,27 +70,41 @@ Se o campo ficar vazio, o app usa o padrão técnico anterior.
 
 Use este módulo quando os analistas precisarem gerar as tabelas normais de precificação.
 
+### Tabelas-fonte existentes
+
+Antes do upload, o usuário informa quais preços já possui na planilha:
+
+- `001`;
+- `007`;
+- ou `001 + 007`.
+
+O preço informado é sempre a autoridade. Em especial, quando a planilha já contém a 007, o app **não recalcula nem substitui essa 007** usando o desconto da 001.
+
+Depois, o usuário escolhe separadamente quais tabelas deseja gerar. Exemplo: se já possui `001 + 007`, pode gerar somente `004`, `012` e `013`.
+
 ### Planilha de entrada
 
-A planilha deve conter:
+O layout depende das fontes selecionadas:
 
-| Coluna | Campo |
+| Fontes selecionadas | Estrutura |
 |---|---|
-| A | SKU |
-| B | Custo Médio |
-| C | Preço 001 |
+| 001 | A=SKU, B=Custo Médio, C=Preço 001 |
+| 007 | A=SKU, B=Custo Médio, C=Preço 007 |
+| 001 + 007 | A=SKU, B=Custo Médio, C=Preço 001, D=Preço 007 |
 
-O sistema também tenta reconhecer cabeçalhos como `SKU`, `Custo Médio` e `Preço 001`.
+Os SKUs são normalizados para cinco dígitos quando aplicável.
 
 ### Regras aplicadas
 
 | Tabela | Regra |
 |---|---|
-| 001 | Preço 001 informado pelo usuário |
+| 001 | Preço 001 informado pelo usuário; não é reconstruído a partir da 007 |
 | 004 | Menor valor entre `Custo médio / 2` e `Preço final 007 / 4` |
 | 012 | Menor valor entre `Custo médio / 2` e `Preço final 007 / 4` |
-| 007 | Preço 001 com 16% de desconto |
-| 013 | Preço da 007 + 12% |
+| 007 | Se informada, preserva o valor informado; caso contrário, usa Preço 001 com desconto configurado |
+| 013 | Preço final da 007 + acréscimo configurado |
+
+O relatório mostra também a origem do preço 007 e, quando 001 e 007 foram informadas, a diferença entre a 007 existente e a 007 teórica que seria calculada pela 001.
 
 ## Módulo 2 — Adequação ML
 
@@ -165,29 +179,22 @@ python run_cli.py ml --tabela-007 "tabela 007-0526.xlsx" --ml "PREÇOS ML - REVI
 python run_cli.py comum --base "precificacao_comum.xlsx" --saida saida_comum
 ```
 
-## Atualização V14
+## Atualização V16
 
-Na aba **Adequação ML**, a política foi ajustada para gerar **001, 007 e 013 com o mesmo preço**. A diferença entre as tabelas nesse módulo passa a ser apenas o código da primeira linha do CSV:
+A Precificação Comum passou a separar explicitamente **fontes já existentes** de **tabelas a gerar**.
 
-```csv
-001;;;
-36556;62.00;17/06/2026;
-```
+Exemplo operacional:
 
-```csv
-007;;;
-36556;62.00;17/06/2026;
-```
+1. selecionar `001` e `007` como tabelas-fonte existentes;
+2. enviar uma planilha com `SKU`, `Custo Médio`, `Preço 001` e `Preço 007`;
+3. selecionar somente `004`, `012` e `013` para geração;
+4. o app preserva a 007 existente e calcula as demais a partir dela.
 
-```csv
-013;;;
-36556;62.00;17/06/2026;
-```
-
+Essa regra elimina a obrigatoriedade de sempre reconstruir todo o conjunto a partir da tabela 001.
 
 ## Atualização V15
 
-As tabelas internas **004** e **012** agora acompanham promoções da tabela 007.
+As tabelas internas **004** e **012** acompanham promoções da tabela 007.
 
 Para cada SKU, o app calcula dois candidatos:
 
@@ -195,15 +202,3 @@ Para cada SKU, o app calcula dois candidatos:
 2. novo cálculo promocional: `Preço final da tabela 007 / 4`.
 
 O menor valor válido entre os dois é usado como preço final das tabelas **004** e **012**.
-
-Exemplo:
-
-| Custo Médio | Preço Final 007 | Custo / 2 | 007 / 4 | Preço final 004/012 |
-|---:|---:|---:|---:|---:|
-| 100,00 | 80,00 | 50,00 | 20,00 | 20,00 |
-| 100,00 | 240,00 | 50,00 | 60,00 | 50,00 |
-
-Essa regra vale para:
-
-- **Adequação ML**, que agora pode exportar 001, 004, 007, 012 e 013;
-- **Precificação Comum**, mantendo a lógica de 001/007/013, mas ajustando 004/012 pelo menor preço interno.
