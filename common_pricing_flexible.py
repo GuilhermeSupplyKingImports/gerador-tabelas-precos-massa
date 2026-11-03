@@ -29,7 +29,7 @@ def _preco_planilha_seguro(raw_value, excel_row: int, coluna: str, sku: str):
     """Preserva notação científica legítima e rejeita valores incompatíveis."""
     if isinstance(raw_value, str):
         texto = raw_value.strip().replace("R$", "").replace(" ", "")
-        if re.fullmatch(r"[+-]?(?:\\d+(?:[.,]\\d*)?|[.,]\\d+)[eE][+-]?\\d+", texto):
+        if re.fullmatch(r"[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)[eE][+-]?\d+", texto):
             numero = float(texto.replace(",", "."))
         else:
             numero = parse_money(raw_value)
