@@ -46,3 +46,17 @@ def test_zip_vazio_falha_com_erro_explicito():
     import pytest
     with pytest.raises(ValueError, match="Nenhum arquivo"):
         build_zip_checked({})
+
+
+def test_browser_download_bypasses_media_endpoint():
+    from base64 import b64decode
+    from html import unescape
+    from re import search
+    from download_utils import browser_download_link
+    data = b"PK\\x03\\x04exemplo"
+    html = browser_download_link(data, "pacote - teste.zip")
+    assert 'download="pacote - teste.zip"' in html
+    assert "/media/" not in html
+    matched = search(r"base64,([A-Za-z0-9+/=]+)", html)
+    assert matched
+    assert b64decode(matched.group(1)) == data
