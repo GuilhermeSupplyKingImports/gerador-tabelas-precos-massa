@@ -602,16 +602,21 @@ def render_precificacao_comum():
             acrescimo_013_sobre_007=float(acrescimo_013),
             usar_ocorrencia_duplicada=dup_rule,
         )
-        with st.spinner("Processando Precificação Comum..."):
-            result = processar_precificacao_comum_flexivel(
-                base_file,
-                config=cfg,
-                data_alteracao=data_alt,
-                tabelas_existentes=tabelas_existentes,
-                tabelas_para_gerar=tabelas_selecionadas,
-            )
-            data_nome = data_alt.strftime("%Y%m%d")
-            data_download = data_alt.strftime("%d%m%Y")
+        try:
+            with st.spinner("Processando Precificação Comum..."):
+                result = processar_precificacao_comum_flexivel(
+                    base_file,
+                    config=cfg,
+                    data_alteracao=data_alt,
+                    tabelas_existentes=tabelas_existentes,
+                    tabelas_para_gerar=tabelas_selecionadas,
+                )
+                data_nome = data_alt.strftime("%Y%m%d")
+                data_download = data_alt.strftime("%d%m%Y")
+        except (ValueError, OverflowError) as exc:
+            st.session_state["resultado_comum"] = None
+            st.error(f"Exportação bloqueada para proteger os preços do Protheus: {exc}")
+            st.stop()
 
         st.session_state["resultado_comum"] = {
             "result": result,
