@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-import math
-import re
 from typing import Iterable, Optional, Set
 
 import pandas as pd
@@ -18,35 +16,6 @@ from processor import (
     parse_money,
     validate_sku_format,
 )
-
-
-# Valores acima deste limite são rejeitados, não corrigidos por adivinhação.
-# O limite é apenas uma proteção contra corrupção de números da planilha.
-LIMITE_SEGURANCA_PRECO = 10_000_000.0
-
-
-def _preco_planilha_seguro(raw_value, excel_row: int, coluna: str, sku: str):
-    """Preserva notação científica legítima e rejeita valores incompatíveis."""
-    if isinstance(raw_value, str):
-        texto = raw_value.strip().replace("R$", "").replace(" ", "")
-        if re.fullmatch(r"[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)[eE][+-]?\d+", texto):
-            numero = float(texto.replace(",", "."))
-        else:
-            numero = parse_money(raw_value)
-    else:
-        numero = parse_money(raw_value)
-    if numero is not None and (
-        not math.isfinite(float(numero)) or abs(float(numero)) > LIMITE_SEGURANCA_PRECO
-    ):
-        raise ValueError(
-            f"PREÇO/CUSTO SUSPEITO: SKU {sku}, linha {excel_row}, coluna {coluna}, "
-            f"valor original {str(raw_value)[:70]!r}. "
-            "O arquivo de origem contém um número incompatível com preços de autopeças "
-            "(possível conversão indevida de separador decimal ou notação científica). "
-            "Corrija os valores na planilha original antes de gerar os CSVs. "
-            "Nenhum preço foi dividido ou alterado automaticamente."
-        )
-    return numero
 
 
 SOURCE_TABLES = ("001", "007")
@@ -106,7 +75,7 @@ def _read_precificacao_flexivel(input_file, config: CommonPricingConfig, tabelas
 
         record = {
             "SKU": sku,
-            "CUSTO_MEDIO": _preco_planilha_seguro(raw_custo, excel_row, "B - Custo Médio", sku),
+            "CUSTO_MEDIO": parse_money(raw_custo),
             "PRECO_001": None,
             "PRECO_007": None,
             "SKU_ORIGINAL": str(raw_sku),
@@ -114,7 +83,7 @@ def _read_precificacao_flexivel(input_file, config: CommonPricingConfig, tabelas
         }
         for idx, table in enumerate(ordered_sources):
             raw_value = source_values[idx] if idx < len(source_values) else None
-            record[f"PRECO_{table}"] = _preco_planilha_seguro(raw_value, excel_row, f"{chr(67 + idx)} - Preço {table}", sku)
+            record[f"PRECO_{table}"] = parse_money(raw_value)
         rows.append(record)
 
     try:
