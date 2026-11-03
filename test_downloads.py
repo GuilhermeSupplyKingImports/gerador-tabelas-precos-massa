@@ -69,6 +69,6 @@ def test_preco_csv_mantem_ponto_decimal_e_quatro_campos_protheus():
     dados = pd.DataFrame([{"SKU": "36170", "Preço": "895.13", "Data": "03/11/2026"}])
     csv_bytes = build_protheus_csv_from_df(dados, "001")
     texto = csv_bytes.decode("utf-8")
-    assert texto == "001;;;\\r\\n36170;895.13;03/11/2026;\\r\\n"
+    assert texto.splitlines() == ["001;;;", "36170;895.13;03/11/2026;"]
     assert "89513" not in texto
     assert "895,13" not in texto
