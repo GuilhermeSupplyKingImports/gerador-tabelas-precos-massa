@@ -65,3 +65,23 @@ def test_001_e_007_preserva_007_informada_e_gera_restante():
     assert row["Preço Tabela 012"] == 25.00
     assert result.saidas["004"].iloc[0]["SKU"] == "00068"
     assert result.saidas["013"].iloc[0]["Preço"] == "112.00"
+
+
+def test_bloqueia_preco_corrompido_em_notacao_cientifica():
+    import pytest
+    arquivo = _xlsx_bytes(
+        ["SKU", "Custo Médio", "Preço 001", "Preço 007"],
+        [[36170, 212513, "8.951303589513036e+31", "4.20152018520162e+26"]],
+    )
+    with pytest.raises(ValueError, match="SKU 36170, linha 2, coluna C"):
+        processar_precificacao_comum_flexivel(
+            arquivo, tabelas_existentes=["001", "007"],
+            tabelas_para_gerar=["001", "007"],
+        )
+
+
+def test_preco_normal_e_notacao_cientifica_moderada_sao_lidos():
+    from common_pricing_flexible import _preco_planilha_seguro
+    assert _preco_planilha_seguro("895,13", 2, "C", "36170") == 895.13
+    assert _preco_planilha_seguro("8.9513e+2", 2, "C", "36170") == 895.13
+    assert _preco_planilha_seguro(895.13, 2, "C", "36170") == 895.13
