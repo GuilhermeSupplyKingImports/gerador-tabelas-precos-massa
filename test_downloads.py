@@ -60,3 +60,15 @@ def test_browser_download_bypasses_media_endpoint():
     matched = search(r"base64,([A-Za-z0-9+/=]+)", html)
     assert matched
     assert b64decode(matched.group(1)) == data
+
+
+def test_preco_csv_mantem_ponto_decimal_e_quatro_campos_protheus():
+    """Evita trocar ponto decimal por separador de milhar ou alterar layout DA1."""
+    import pandas as pd
+    from processor import build_protheus_csv_from_df
+    dados = pd.DataFrame([{"SKU": "36170", "Preço": "895.13", "Data": "03/11/2026"}])
+    csv_bytes = build_protheus_csv_from_df(dados, "001")
+    texto = csv_bytes.decode("utf-8")
+    assert texto == "001;;;\\r\\n36170;895.13;03/11/2026;\\r\\n"
+    assert "89513" not in texto
+    assert "895,13" not in texto
