@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import date, datetime
+from hashlib import sha256
 from typing import Dict, Set, Tuple
 import re
 
@@ -506,6 +507,13 @@ def render_precificacao_comum():
 
     st.subheader("2. Envie a planilha base")
     base_file = st.file_uploader("Planilha de Precificação Comum (.xlsx)", type=["xlsx"], key="comum_base")
+    # Resultados são persistidos na sessão: invalidar ao trocar a base ou fontes.
+    assinatura_base = sha256(base_file.getvalue()).hexdigest() if base_file is not None else None
+    assinatura_origem = (assinatura_base, tuple(sorted(tabelas_existentes)))
+    resultado_anterior = st.session_state.get("resultado_comum")
+    if resultado_anterior is not None and resultado_anterior.get("assinatura_origem") != assinatura_origem:
+        st.session_state["resultado_comum"] = None
+        st.info("O arquivo ou as tabelas-fonte mudaram. Gere a precificação novamente.")
 
     fontes_set = set(tabelas_existentes)
     if fontes_set == {"001", "007"}:
@@ -593,6 +601,7 @@ def render_precificacao_comum():
             "gerado_em": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
             "generation_id": datetime.now().strftime("%Y%m%d%H%M%S%f"),
             "tabelas_existentes": list(tabelas_existentes),
+            "assinatura_origem": assinatura_origem,
             "selecionados": {
                 "relatorio": gerar_relatorio,
                 "log": gerar_log,
