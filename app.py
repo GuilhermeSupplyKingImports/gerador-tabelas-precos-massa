@@ -21,13 +21,14 @@ from processor import (
     normalize_sku,
 )
 from common_pricing_flexible import processar_precificacao_comum_flexivel
+from download_utils import build_zip_checked
 
 st.set_page_config(page_title="GERADOR DE TABELAS DE PREÇOS EM MASSA", layout="wide")
 
 st.title("GERADOR DE TABELAS DE PREÇOS EM MASSA")
 st.caption(
     "Home com dois módulos: Precificação Comum e Adequação Mercado Livre. "
-    "Versão V16 - Precificação Comum aceita 001 e/ou 007 existentes e gera somente as tabelas desejadas."
+    "Precificação Comum: preços existentes na planilha são independentes dos CSVs escolhidos para exportação."
 )
 
 if "resultado_ml" not in st.session_state:
@@ -218,7 +219,7 @@ def _build_ml_outputs(payload, filtered_result, identificacao_download: str = ""
         outputs[log_name] = {"label": "Log TXT", "bytes": build_log_txt(filtered_result), "mime": "text/plain"}
 
     zip_name = _nome_arquivo_auxiliar("pacote_tabela_001_004_007_012_013_ml", identificacao_download, data_download, "zip")
-    zip_bytes = build_zip_generic({name: item["bytes"] for name, item in outputs.items()})
+    zip_bytes = build_zip_checked({name: item["bytes"] for name, item in outputs.items()})
     return outputs, zip_name, zip_bytes
 
 
@@ -250,21 +251,30 @@ def _build_common_outputs(payload, filtered_result, identificacao_download: str 
         }
 
     zip_name = _nome_arquivo_auxiliar("pacote_precificacao_comum", identificacao_download, data_download, "zip")
-    zip_bytes = build_zip_generic({name: item["bytes"] for name, item in outputs.items()})
+    zip_bytes = build_zip_checked({name: item["bytes"] for name, item in outputs.items()})
     return outputs, zip_name, zip_bytes
 
 
 def _render_downloads(outputs: Dict[str, Dict], zip_name: str, zip_bytes: bytes, key_prefix: str):
-    download_items = list(outputs.items()) + [(zip_name, {"label": "ZIP selecionados", "bytes": zip_bytes, "mime": "application/zip"})]
-    cols = st.columns(min(len(download_items), 6))
-    for idx, (fname, item) in enumerate(download_items):
-        with cols[idx % len(cols)]:
+    """Prioriza o pacote ZIP e mantém os arquivos individuais opcionais."""
+    st.download_button(
+        "Baixar pacote ZIP (todos os selecionados)",
+        data=zip_bytes,
+        file_name=zip_name,
+        mime="application/zip",
+        key=f"{key_prefix}_zip",
+        type="primary",
+        on_click="ignore",
+    )
+    with st.expander("Baixar arquivos separadamente"):
+        for fname, item in outputs.items():
             st.download_button(
                 item["label"],
-                item["bytes"],
-                fname,
+                data=item["bytes"],
+                file_name=fname,
                 mime=item["mime"],
-                key=f"{key_prefix}_down_{idx}_{fname}",
+                key=f"{key_prefix}_down_{fname}",
+                on_click="ignore",
             )
 
 
@@ -423,10 +433,13 @@ def render_adequacao_ml():
             key=f"ml_nome_download_{payload['generation_id']}",
         )
 
-        outputs, zip_name, zip_bytes = _build_ml_outputs(payload, filtered_result, identificacao_download)
-
-        st.subheader("5. Baixar arquivos selecionados")
-        _render_downloads(outputs, zip_name, zip_bytes, "ml")
+        try:
+            outputs, zip_name, zip_bytes = _build_ml_outputs(payload, filtered_result, identificacao_download)
+        except (ValueError, OSError, TypeError) as exc:
+            st.error(f"Não foi possível preparar os arquivos de download: {exc}")
+        else:
+            st.subheader("5. Baixar arquivos selecionados")
+            _render_downloads(outputs, zip_name, zip_bytes, "ml")
 
         tabs = st.tabs(["Análise", "Alertas", "Comparativo", "Log", "Protheus 001", "Protheus 004", "Protheus 007", "Protheus 012", "Protheus 013"])
         with tabs[0]:
@@ -521,20 +534,19 @@ def render_precificacao_comum():
         "004/012 usam o menor valor entre custo médio / 2 e preço final 007 / 4; 013 usa 007 + acréscimo."
     )
 
-    st.subheader("3. Escolha o que deseja gerar")
+    st.subheader("3. Escolha quais arquivos CSV deseja exportar")
+    st.caption("A seleção de tabelas existentes define a origem dos preços; esta seleção define apenas quais CSVs serão baixados.")
     todas_tabelas = ["001", "004", "012", "007", "013"]
-    if fontes_set == {"001"}:
-        default_gerar = todas_tabelas
-    else:
-        default_gerar = [t for t in todas_tabelas if t not in fontes_set]
+    # Ter preços existentes na planilha não significa possuir os CSVs para o Protheus.
+    default_gerar = todas_tabelas
 
     assinatura_fontes = "_".join(sorted(fontes_set)) or "nenhuma"
     tabelas_selecionadas = st.multiselect(
-        "Tabelas CSV para gerar",
+        "Tabelas CSV para exportar ao Protheus",
         options=todas_tabelas,
         default=default_gerar,
         key=f"comum_tabelas_gerar_{assinatura_fontes}",
-        help="Exemplo: se você já tem 001 e 007, deixe selecionadas apenas 004, 012 e 013.",
+        help="Mesmo que 001 e 007 já existam na planilha, você pode exportá-las em CSV sem recalcular seus preços.",
     )
 
     c1, c2 = st.columns(2)
@@ -634,10 +646,13 @@ def render_precificacao_comum():
             key=f"comum_nome_download_{payload['generation_id']}",
         )
 
-        outputs, zip_name, zip_bytes = _build_common_outputs(payload, filtered_result, identificacao_download)
-
-        st.subheader("6. Baixar arquivos selecionados")
-        _render_downloads(outputs, zip_name, zip_bytes, "comum")
+        try:
+            outputs, zip_name, zip_bytes = _build_common_outputs(payload, filtered_result, identificacao_download)
+        except (ValueError, OSError, TypeError) as exc:
+            st.error(f"Não foi possível preparar os arquivos de download: {exc}")
+        else:
+            st.subheader("6. Baixar arquivos selecionados")
+            _render_downloads(outputs, zip_name, zip_bytes, "comum")
 
         tabs = st.tabs(["Análise", "Log", "001", "004", "012", "007", "013"])
         with tabs[0]:
