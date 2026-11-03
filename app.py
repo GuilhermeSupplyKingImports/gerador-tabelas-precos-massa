@@ -21,7 +21,7 @@ from processor import (
     normalize_sku,
 )
 from common_pricing_flexible import processar_precificacao_comum_flexivel
-from download_utils import build_zip_checked
+from download_utils import build_zip_checked, browser_download_link
 
 st.set_page_config(page_title="GERADOR DE TABELAS DE PREÇOS EM MASSA", layout="wide")
 
@@ -257,16 +257,25 @@ def _build_common_outputs(payload, filtered_result, identificacao_download: str 
 
 def _render_downloads(outputs: Dict[str, Dict], zip_name: str, zip_bytes: bytes, key_prefix: str):
     """Prioriza o pacote ZIP e mantém os arquivos individuais opcionais."""
-    st.download_button(
-        "Baixar pacote ZIP (todos os selecionados)",
-        data=zip_bytes,
-        file_name=zip_name,
-        mime="application/zip",
-        key=f"{key_prefix}_zip",
-        type="primary",
-        on_click="ignore",
-    )
-    with st.expander("Baixar arquivos separadamente"):
+    # Evita o endpoint /media, que pode retornar 404 após reruns ou migração
+    # de sessão/servidor no Streamlit Community Cloud.
+    if len(zip_bytes) <= 12 * 1024 * 1024:
+        st.markdown(
+            browser_download_link(zip_bytes, zip_name),
+            unsafe_allow_html=True,
+        )
+        st.caption("Download direto no navegador, sem URL temporária do Streamlit.")
+    else:
+        st.warning("O pacote excede 12 MB; utilize o download padrão abaixo.")
+    with st.expander("Download alternativo (Streamlit) e arquivos individuais"):
+        st.download_button(
+            "Baixar pacote ZIP pelo Streamlit (alternativo)",
+            data=zip_bytes,
+            file_name=zip_name,
+            mime="application/zip",
+            key=f"{key_prefix}_zip",
+            on_click="ignore",
+        )
         for fname, item in outputs.items():
             st.download_button(
                 item["label"],
