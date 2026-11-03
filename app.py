@@ -257,6 +257,13 @@ def _build_common_outputs(payload, filtered_result, identificacao_download: str 
 
 def _render_downloads(outputs: Dict[str, Dict], zip_name: str, zip_bytes: bytes, key_prefix: str):
     """Prioriza o pacote ZIP e mantém os arquivos individuais opcionais."""
+    st.warning(
+        "ATENÇÃO: os CSVs do Protheus usam ponto como separador decimal (ex.: 895.13). "
+        "No Excel em português, abrir o CSV por duplo clique pode exibir 89513. "
+        "Não salve o CSV após abri-lo dessa forma. Para conferir valores, utilize "
+        "a aba Análise ou o relatório XLSX; para importar no Excel 2016, use "
+        "Dados > De Texto, delimitador ';' e separador decimal '.'."
+    )
     # Evita o endpoint /media, que pode retornar 404 após reruns ou migração
     # de sessão/servidor no Streamlit Community Cloud.
     if len(zip_bytes) <= 12 * 1024 * 1024:
