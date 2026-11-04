@@ -1,4 +1,9 @@
 from dataclasses import replace
+from base64 import b64encode
+from html import escape
+from io import BytesIO
+import json
+from zipfile import ZipFile
 from datetime import date, datetime
 from hashlib import sha256
 from typing import Dict, Set, Tuple
@@ -6,6 +11,7 @@ import re
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from processor import (
     ProcessConfig,
@@ -256,17 +262,55 @@ def _build_common_outputs(payload, filtered_result, identificacao_download: str 
 
 
 def _render_downloads(outputs: Dict[str, Dict], zip_name: str, zip_bytes: bytes, key_prefix: str):
-    download_items = list(outputs.items()) + [(zip_name, {"label": "ZIP selecionados", "bytes": zip_bytes, "mime": "application/zip"})]
-    cols = st.columns(min(len(download_items), 6))
-    for idx, (fname, item) in enumerate(download_items):
-        with cols[idx % len(cols)]:
-            st.download_button(
-                item["label"],
-                item["bytes"],
-                fname,
-                mime=item["mime"],
-                key=f"{key_prefix}_down_{idx}_{fname}",
-            )
+    # A geração do ZIP permanece inalterada. Verifique a integridade antes do envio.
+    with ZipFile(BytesIO(zip_bytes), "r") as archive:
+        erro = archive.testzip()
+        if erro or set(archive.namelist()) != set(outputs):
+            st.error("Falha na integridade do ZIP. Download bloqueado.")
+            return
+
+    # No Streamlit Cloud, as URLs temporárias /media dos downloads nativos podem
+    # falhar. O ZIP pequeno é entregue diretamente pelo navegador, via Blob.
+    if len(zip_bytes) <= 12 * 1024 * 1024:
+        conteudo = b64encode(zip_bytes).decode("ascii")
+        nome_js = json.dumps(zip_name, ensure_ascii=False)
+        html_zip = """
+        <button id="download_zip" type="button" style="
+            cursor:pointer;background:#ff4b4b;color:white;border:0;
+            border-radius:8px;padding:11px 18px;font:600 14px sans-serif">
+            Baixar ZIP completo
+        </button>
+        <script>
+        document.getElementById('download_zip').addEventListener('click', function() {
+            const binary = atob(DATA_BASE64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const url = URL.createObjectURL(new Blob([bytes], {type: 'application/zip'}));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = NOME_ARQUIVO;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+        });
+        </script>
+        """.replace("DATA_BASE64", json.dumps(conteudo)).replace("NOME_ARQUIVO", nome_js)
+        components.html(html_zip, height=60, scrolling=False)
+    else:
+        st.warning("ZIP acima de 12 MB: utilize o botão alternativo do Streamlit.")
+
+    with st.expander("Downloads individuais e ZIP alternativo"):
+        download_items = list(outputs.items()) + [(zip_name, {"label": "ZIP (alternativo)", "bytes": zip_bytes, "mime": "application/zip"})]
+        cols = st.columns(min(len(download_items), 6))
+        for idx, (fname, item) in enumerate(download_items):
+            with cols[idx % len(cols)]:
+                st.download_button(
+                    item["label"], item["bytes"], fname,
+                    mime=item["mime"],
+                    key=f"{key_prefix}_down_{idx}_{fname}",
+                    on_click="ignore",
+                )
 
 
 def render_adequacao_ml():
